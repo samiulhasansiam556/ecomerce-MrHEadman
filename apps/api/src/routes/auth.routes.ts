@@ -5,7 +5,9 @@ import {
   loginController,
   logoutController,
   refreshController,
+  changePasswordController
 } from '../controllers/auth.controller';
+import { changePasswordSchema } from '../validators/account.validation';
 
 import {
   signupLimiter,
@@ -43,6 +45,14 @@ router.post(
   '/logout',
   requireAuth,
   logoutController,
+);
+
+
+router.post(
+  '/change-password',
+  requireAuth,
+  validate(changePasswordSchema),
+  changePasswordController,
 );
 
 // Refresh token is validated inside the service.

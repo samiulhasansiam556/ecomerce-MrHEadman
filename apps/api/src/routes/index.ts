@@ -3,10 +3,12 @@ import { Router } from 'express';
 import { env } from '../config/env';
 import { isDbReady } from '../config/db';
 import authRoutes from './auth.routes';
+import meRoutes from './me.routes';
 import {
   CSRF_COOKIE_NAME,
   csrfProtection,
 } from '../middlewares/csrf';
+
 
 const router = Router();
 
@@ -75,6 +77,7 @@ router.get('/auth/csrf', (req, res) => {
 
 
 router.use('/auth', authRoutes);
+router.use('/me', meRoutes);
 
 
 export default router;

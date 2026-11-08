@@ -12,6 +12,7 @@ import UserModel from '../models/user.model';
 import RefreshTokenModel from '../models/refreshToken.model';
 import { AppError } from '../utils/AppError';
 import type { SignupInput,LoginInput } from '../validators/auth.validation';
+import type { ChangePasswordInput } from '../validators/account.validation';
 
 const ACCESS_TOKEN_TTL = 15 * 60 * 1000;
 const REFRESH_TOKEN_TTL = 7 * 24 * 60 * 60 * 1000;
@@ -486,4 +487,82 @@ export async function refreshSession(
   }
 
   return result;
+}
+
+
+
+export async function changeUserPassword(
+  userId: string,
+  input: ChangePasswordInput,
+): Promise<void> {
+  const user = await UserModel.findById(userId).select('+passwordHash');
+
+  if (!user) {
+    throw new AppError(404, 'USER_NOT_FOUND', 'User not found');
+  }
+
+  if (user.status !== 'active') {
+    throw new AppError(403, 'ACCOUNT_DISABLED', 'This account is disabled');
+  }
+
+  const currentPasswordValid = await argon2.verify(
+    user.passwordHash,
+    input.currentPassword,
+  );
+
+  if (!currentPasswordValid) {
+    throw new AppError(
+      400,
+      'CURRENT_PASSWORD_INVALID',
+      'Current password is incorrect',
+    );
+  }
+
+  const newPasswordHash = await argon2.hash(input.newPassword, {
+    type: argon2.argon2id,
+  });
+
+  const session = await mongoose.startSession();
+
+  try {
+    await session.withTransaction(async () => {
+      // Password একই সময়ে অন্য request-এ বদলে গেলে update হবে না।
+      const updateResult = await UserModel.updateOne(
+        {
+          _id: user._id,
+          passwordHash: user.passwordHash,
+        },
+        {
+          $set: { passwordHash: newPasswordHash },
+          $inc: { tokenVersion: 1 },
+        },
+        { session },
+      );
+
+      if (updateResult.modifiedCount !== 1) {
+        throw new AppError(
+          409,
+          'PASSWORD_CHANGE_CONFLICT',
+          'Password was changed by another request. Please try again.',
+        );
+      }
+
+      // User-এর সব active refresh token revoke হবে।
+      await RefreshTokenModel.updateMany(
+        {
+          userId: user._id,
+          $or: [
+            { revokedAt: { $exists: false } },
+            { revokedAt: null },
+          ],
+        },
+        {
+          $set: { revokedAt: new Date() },
+        },
+        { session },
+      );
+    });
+  } finally {
+    await session.endSession();
+  }
 }

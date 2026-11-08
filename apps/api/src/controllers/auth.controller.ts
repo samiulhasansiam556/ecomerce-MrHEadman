@@ -5,7 +5,9 @@ import {
   loginUser,
   logoutSession,
   refreshSession,
+  changeUserPassword,
 } from "../services/auth.service";
+import type { ChangePasswordInput } from "../validators/account.validation";
 
 import { asyncHandler } from "../utils/asyncHandler";
 
@@ -147,5 +149,20 @@ export const refreshController: RequestHandler = asyncHandler(
         user: result.user,
       },
     });
+  },
+);
+
+
+export const changePasswordController: RequestHandler = asyncHandler(
+  async (_req, res) => {
+    const authUser = res.locals.authUser as AuthenticatedUser;
+    const input = res.locals.validated as ChangePasswordInput;
+
+    await changeUserPassword(authUser.id, input);
+
+    // Password change-এর পর বর্তমান browser-এর cookies-ও clear হবে।
+    clearAuthCookies(res);
+
+    return res.status(204).send();
   },
 );
