@@ -1,34 +1,86 @@
-import type { RequestHandler } from 'express';
+import type { RequestHandler, Response } from "express";
 
-import { signupUser } from '../services/auth.service';
-import { asyncHandler } from '../utils/asyncHandler';
-import type { SignupInput } from '../validators/auth.validation';
-import { loginUser } from '../services/auth.service';
-import type { LoginInput } from '../validators/auth.validation';
-const ACCESS_COOKIE = 'access_token';
-const REFRESH_COOKIE = 'refresh_token';
+import {
+  signupUser,
+  loginUser,
+  logoutSession,
+  refreshSession,
+} from "../services/auth.service";
 
-const cookieOptions = {
+import { asyncHandler } from "../utils/asyncHandler";
+
+import type {
+  SignupInput,
+  LoginInput,
+} from "../validators/auth.validation";
+
+import type { AuthenticatedUser } from "../middlewares/auth";
+import { env } from "../config/env";
+
+const ACCESS_COOKIE = "access_token";
+const REFRESH_COOKIE = "refresh_token";
+
+const baseCookieOptions = {
   httpOnly: true,
-  secure: process.env.NODE_ENV === 'production',
-  sameSite: 'lax' as const,
-  path: '/api/v1',
+  secure: env.NODE_ENV === "production",
+  sameSite: "lax" as const,
 };
+
+const accessCookieOptions = {
+  ...baseCookieOptions,
+  path: "/api/v1",
+};
+
+const refreshCookieOptions = {
+  ...baseCookieOptions,
+  path: "/api/v1/auth",
+};
+
+function setAuthCookies(
+  res: Response,
+  result: {
+    accessToken: string;
+    refreshToken: string;
+    accessTokenMaxAge: number;
+    refreshTokenMaxAge: number;
+  },
+) {
+  // Remove the old refresh cookie scoped to /api/v1
+  res.clearCookie(REFRESH_COOKIE, {
+    ...baseCookieOptions,
+    path: "/api/v1",
+  });
+
+  res.cookie(ACCESS_COOKIE, result.accessToken, {
+    ...accessCookieOptions,
+    maxAge: result.accessTokenMaxAge,
+  });
+
+  res.cookie(REFRESH_COOKIE, result.refreshToken, {
+    ...refreshCookieOptions,
+    maxAge: result.refreshTokenMaxAge,
+  });
+}
+
+function clearAuthCookies(res: Response) {
+  res.clearCookie(ACCESS_COOKIE, accessCookieOptions);
+
+  // Current refresh cookie path
+  res.clearCookie(REFRESH_COOKIE, refreshCookieOptions);
+
+  // Old refresh cookie path (migration cleanup)
+  res.clearCookie(REFRESH_COOKIE, {
+    ...baseCookieOptions,
+    path: "/api/v1",
+  });
+}
 
 export const signupController: RequestHandler = asyncHandler(
   async (_req, res) => {
     const input = res.locals.validated as SignupInput;
     const result = await signupUser(input);
 
-    res.cookie(ACCESS_COOKIE, result.accessToken, {
-      ...cookieOptions,
-      maxAge: result.accessTokenMaxAge,
-    });
-
-    res.cookie(REFRESH_COOKIE, result.refreshToken, {
-      ...cookieOptions,
-      maxAge: result.refreshTokenMaxAge,
-    });
+    setAuthCookies(res, result);
 
     return res.status(201).json({
       success: true,
@@ -36,30 +88,58 @@ export const signupController: RequestHandler = asyncHandler(
         user: result.user,
       },
     });
-
   },
 );
-
-
 
 export const loginController: RequestHandler = asyncHandler(
   async (req, res) => {
     const input = res.locals.validated as LoginInput;
 
     const result = await loginUser(input, {
-      userAgent: req.get('user-agent'),
+      userAgent: req.get("user-agent"),
       ip: req.ip,
     });
 
-    res.cookie(ACCESS_COOKIE, result.accessToken, {
-      ...cookieOptions,
-      maxAge: result.accessTokenMaxAge,
-    });
+    setAuthCookies(res, result);
 
-    res.cookie(REFRESH_COOKIE, result.refreshToken, {
-      ...cookieOptions,
-      maxAge: result.refreshTokenMaxAge,
+    return res.status(200).json({
+      success: true,
+      data: {
+        user: result.user,
+      },
     });
+  },
+);
+
+export const logoutController: RequestHandler = asyncHandler(
+  async (req, res) => {
+    const authUser = res.locals.authUser as AuthenticatedUser;
+    const refreshToken = req.cookies?.[REFRESH_COOKIE];
+
+    await logoutSession(
+      authUser.id,
+      typeof refreshToken === "string" ? refreshToken : undefined,
+    );
+
+    clearAuthCookies(res);
+
+    return res.status(204).send();
+  },
+);
+
+export const refreshController: RequestHandler = asyncHandler(
+  async (req, res) => {
+    const refreshToken = req.cookies?.[REFRESH_COOKIE];
+
+    const result = await refreshSession(
+      typeof refreshToken === "string" ? refreshToken : undefined,
+      {
+        userAgent: req.get("user-agent"),
+        ip: req.ip,
+      },
+    );
+
+    setAuthCookies(res, result);
 
     return res.status(200).json({
       success: true,

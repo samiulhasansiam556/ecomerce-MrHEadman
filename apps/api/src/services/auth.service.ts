@@ -212,3 +212,278 @@ export async function loginUser(
     refreshTokenMaxAge: REFRESH_TOKEN_TTL,
   };
 }
+
+
+
+export async function logoutSession(
+  userId: string,
+  refreshToken?: string,
+): Promise<void> {
+  if (!refreshToken) return;
+
+  await RefreshTokenModel.updateOne(
+    {
+      userId,
+      tokenHash: hashToken(refreshToken),
+      $or: [
+        { revokedAt: { $exists: false } },
+        { revokedAt: null },
+      ],
+    },
+    {
+      $set: { revokedAt: new Date() },
+    },
+  );
+}
+
+export async function refreshSession(
+  rawRefreshToken: string | undefined,
+  metadata: {
+    userAgent?: string;
+    ip?: string;
+  },
+) {
+  if (
+    typeof rawRefreshToken !== 'string' ||
+    rawRefreshToken.length < 20 ||
+    rawRefreshToken.length > 200
+  ) {
+    throw new AppError(
+      401,
+      'INVALID_REFRESH_TOKEN',
+      'Invalid or expired refresh token',
+    );
+  }
+
+  const tokenHash = hashToken(rawRefreshToken);
+  const session = await mongoose.startSession();
+
+  let reuseDetected = false;
+
+  let result:
+    | {
+        accessToken: string;
+        refreshToken: string;
+        user: {
+          id: string;
+          name: string;
+          email: string;
+          phone: string;
+          role: string;
+          profileImage?: {
+            publicId: string;
+            url: string;
+          };
+          createdAt: Date;
+        };
+        accessTokenMaxAge: number;
+        refreshTokenMaxAge: number;
+      }
+    | undefined;
+
+  try {
+    await session.withTransaction(async () => {
+      // Transaction retry হলে flag reset হবে।
+      reuseDetected = false;
+      result = undefined;
+
+      const oldToken = await RefreshTokenModel.findOne({
+        tokenHash,
+      }).session(session);
+
+      if (!oldToken) {
+        throw new AppError(
+          401,
+          'INVALID_REFRESH_TOKEN',
+          'Invalid or expired refresh token',
+        );
+      }
+
+      // Previously rotated/revoked token আবার ব্যবহার হয়েছে।
+      if (oldToken.revokedAt) {
+        await RefreshTokenModel.updateMany(
+          {
+            familyId: oldToken.familyId,
+            $or: [
+              { revokedAt: { $exists: false } },
+              { revokedAt: null },
+            ],
+          },
+          {
+            $set: { revokedAt: new Date() },
+          },
+          { session },
+        );
+
+        reuseDetected = true;
+        return;
+      }
+
+      const now = new Date();
+
+      if (oldToken.expiresAt <= now) {
+        throw new AppError(
+          401,
+          'INVALID_REFRESH_TOKEN',
+          'Invalid or expired refresh token',
+        );
+      }
+
+      const user = await UserModel.findById(
+        oldToken.userId,
+      )
+        .select(
+          'name email phone role status profileImage tokenVersion createdAt',
+        )
+        .session(session);
+
+      if (!user) {
+        throw new AppError(
+          401,
+          'INVALID_REFRESH_TOKEN',
+          'Invalid or expired refresh token',
+        );
+      }
+
+      if (user.status !== 'active') {
+        throw new AppError(
+          403,
+          'ACCOUNT_DISABLED',
+          'This account is disabled',
+        );
+      }
+
+      const newRefreshToken = randomBytes(32).toString(
+        'base64url',
+      );
+
+      // নতুন refresh token একই family-র অংশ।
+      const [newTokenRecord] = await RefreshTokenModel.create(
+        [
+          {
+            userId: user._id,
+            tokenHash: hashToken(newRefreshToken),
+            familyId: oldToken.familyId,
+            expiresAt: new Date(
+              now.getTime() + REFRESH_TOKEN_TTL,
+            ),
+            userAgent: metadata.userAgent,
+            ip: metadata.ip,
+          },
+        ],
+        { session },
+      );
+
+      // পুরোনো token revoke + নতুন token-এর reference।
+      const rotation = await RefreshTokenModel.updateOne(
+        {
+          _id: oldToken._id,
+          expiresAt: { $gt: now },
+          $or: [
+            { revokedAt: { $exists: false } },
+            { revokedAt: null },
+          ],
+        },
+        {
+          $set: {
+            revokedAt: now,
+            replacedBy: newTokenRecord._id,
+          },
+        },
+        { session },
+      );
+
+      if (rotation.modifiedCount !== 1) {
+        throw new AppError(
+          401,
+          'INVALID_REFRESH_TOKEN',
+          'Refresh token is no longer valid',
+        );
+      }
+
+      const accessToken = jwt.sign(
+        {
+          tokenVersion: user.tokenVersion,
+        },
+        env.JWT_ACCESS_SECRET,
+        {
+          subject: user._id.toString(),
+          algorithm: 'HS256',
+          expiresIn: '15m',
+        },
+      );
+
+      result = {
+        accessToken,
+        refreshToken: newRefreshToken,
+
+        user: {
+          id: user._id.toString(),
+          name: user.name,
+          email: user.email,
+          phone: user.phone,
+          role: user.role,
+          ...(user.profileImage
+            ? { profileImage: user.profileImage }
+            : {}),
+          createdAt: user.createdAt,
+        },
+
+        accessTokenMaxAge: ACCESS_TOKEN_TTL,
+        refreshTokenMaxAge: REFRESH_TOKEN_TTL,
+      };
+    });
+  } catch (error) {
+    /*
+     * Concurrent refresh-এর ক্ষেত্রে অন্য request
+     * একই token আগে rotate করে থাকতে পারে।
+     * Transaction শেষ হওয়ার পর পুরোনো token পরীক্ষা করি।
+     */
+    const currentToken = await RefreshTokenModel.findOne({
+      tokenHash,
+    }).select('familyId revokedAt');
+
+    if (currentToken?.revokedAt) {
+      await RefreshTokenModel.updateMany(
+        {
+          familyId: currentToken.familyId,
+          $or: [
+            { revokedAt: { $exists: false } },
+            { revokedAt: null },
+          ],
+        },
+        {
+          $set: { revokedAt: new Date() },
+        },
+      );
+
+      throw new AppError(
+        401,
+        'REFRESH_TOKEN_REUSE_DETECTED',
+        'Session is no longer valid. Please log in again.',
+      );
+    }
+
+    throw error;
+  } finally {
+    await session.endSession();
+  }
+
+  if (reuseDetected) {
+    throw new AppError(
+      401,
+      'REFRESH_TOKEN_REUSE_DETECTED',
+      'Session is no longer valid. Please log in again.',
+    );
+  }
+
+  if (!result) {
+    throw new AppError(
+      401,
+      'INVALID_REFRESH_TOKEN',
+      'Invalid or expired refresh token',
+    );
+  }
+
+  return result;
+}
