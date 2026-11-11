@@ -13,6 +13,16 @@ import RefreshTokenModel from '../models/refreshToken.model';
 import { AppError } from '../utils/AppError';
 import type { SignupInput,LoginInput } from '../validators/auth.validation';
 import type { ChangePasswordInput } from '../validators/account.validation';
+import PasswordResetTokenModel from '../models/passwordResetToken.model';
+import { sendPasswordResetEmail } from '../config/mailer';
+import { logger } from '../utils/logger';
+
+import type {
+  ForgotPasswordInput,
+  ResetPasswordInput,
+} from '../validators/auth.validation';
+
+
 
 const ACCESS_TOKEN_TTL = 15 * 60 * 1000;
 const REFRESH_TOKEN_TTL = 7 * 24 * 60 * 60 * 1000;
@@ -558,6 +568,219 @@ export async function changeUserPassword(
         },
         {
           $set: { revokedAt: new Date() },
+        },
+        { session },
+      );
+    });
+  } finally {
+    await session.endSession();
+  }
+}
+
+const PASSWORD_RESET_TTL = 30 * 60 * 1000;
+
+const PASSWORD_RESET_MESSAGE =
+  'If an account with that email exists, a password reset link has been sent.';
+
+export async function forgotUserPassword(
+  input: ForgotPasswordInput,
+): Promise<{ message: string }> {
+  const user = await UserModel.findOne({
+    email: input.email,
+  }).select('_id email');
+
+  // Email registered না থাকলেও একই response।
+  if (!user) {
+    return { message: PASSWORD_RESET_MESSAGE };
+  }
+
+  const rawToken = randomBytes(32).toString('hex');
+  const now = new Date();
+
+  const session = await mongoose.startSession();
+
+  try {
+    await session.withTransaction(async () => {
+      // আগের unused reset tokens invalidate হবে।
+      await PasswordResetTokenModel.updateMany(
+        {
+          userId: user._id,
+          $or: [
+            { usedAt: { $exists: false } },
+            { usedAt: null },
+          ],
+        },
+        {
+          $set: { usedAt: now },
+        },
+        { session },
+      );
+
+      await PasswordResetTokenModel.create(
+        [
+          {
+            userId: user._id,
+            tokenHash: hashToken(rawToken),
+            expiresAt: new Date(
+              now.getTime() + PASSWORD_RESET_TTL,
+            ),
+          },
+        ],
+        { session },
+      );
+    });
+  } finally {
+    await session.endSession();
+  }
+
+  const resetUrl = new URL(
+    '/reset-password',
+    env.CLIENT_URL,
+  );
+
+  resetUrl.searchParams.set('token', rawToken);
+try {
+  await sendPasswordResetEmail(
+    user.email,
+    resetUrl.toString(),
+  );
+} catch (error) {
+  const smtpError = error as {
+    code?: string;
+    command?: string;
+    responseCode?: number;
+    response?: string;
+  };
+
+  logger.error(
+    {
+      errorName:
+        error instanceof Error
+          ? error.name
+          : 'UnknownError',
+
+      smtpCode: smtpError.code,
+      smtpCommand: smtpError.command,
+      smtpResponseCode: smtpError.responseCode,
+      smtpResponse: smtpError.response
+        ? smtpError.response.slice(0, 300)
+        : undefined,
+    },
+    'Password reset email delivery failed',
+  );
+}
+  return { message: PASSWORD_RESET_MESSAGE };
+}
+
+export async function resetUserPassword(
+  input: ResetPasswordInput,
+): Promise<void> {
+  const newPasswordHash = await argon2.hash(
+    input.newPassword,
+    {
+      type: argon2.argon2id,
+    },
+  );
+
+  const now = new Date();
+  const tokenHash = hashToken(input.token);
+
+  const session = await mongoose.startSession();
+
+  try {
+    await session.withTransaction(async () => {
+      const resetToken =
+        await PasswordResetTokenModel.findOne({
+          tokenHash,
+          expiresAt: { $gt: now },
+          $or: [
+            { usedAt: { $exists: false } },
+            { usedAt: null },
+          ],
+        }).session(session);
+
+      if (!resetToken) {
+        throw new AppError(
+          400,
+          'INVALID_RESET_TOKEN',
+          'Invalid or expired password reset token',
+        );
+      }
+
+      // Token একবারই ব্যবহার করা যাবে।
+      const consumed =
+        await PasswordResetTokenModel.updateOne(
+          {
+            _id: resetToken._id,
+            expiresAt: { $gt: now },
+            $or: [
+              { usedAt: { $exists: false } },
+              { usedAt: null },
+            ],
+          },
+          {
+            $set: { usedAt: now },
+          },
+          { session },
+        );
+
+      if (consumed.modifiedCount !== 1) {
+        throw new AppError(
+          400,
+          'INVALID_RESET_TOKEN',
+          'Invalid or expired password reset token',
+        );
+      }
+
+      // Password update + সব access JWT invalidate।
+      const userUpdate = await UserModel.updateOne(
+        { _id: resetToken.userId },
+        {
+          $set: {
+            passwordHash: newPasswordHash,
+          },
+          $inc: {
+            tokenVersion: 1,
+          },
+        },
+        { session },
+      );
+
+      if (userUpdate.modifiedCount !== 1) {
+        throw new AppError(
+          400,
+          'INVALID_RESET_TOKEN',
+          'Invalid or expired password reset token',
+        );
+      }
+
+      // সব active refresh sessions revoke।
+      await RefreshTokenModel.updateMany(
+        {
+          userId: resetToken.userId,
+          $or: [
+            { revokedAt: { $exists: false } },
+            { revokedAt: null },
+          ],
+        },
+        {
+          $set: { revokedAt: now },
+        },
+        { session },
+      );
+
+      // একই user-এর অন্য reset tokens-ও invalidate।
+      await PasswordResetTokenModel.updateMany(
+        {
+          userId: resetToken.userId,
+          _id: { $ne: resetToken._id },
+          $or: [
+            { usedAt: { $exists: false } },
+            { usedAt: null },
+          ],
+        },
+        {
+          $set: { usedAt: now },
         },
         { session },
       );

@@ -58,3 +58,32 @@ export const loginSchema = z.strictObject({
 });
 
 export type LoginInput = z.infer<typeof loginSchema>;
+
+
+export const forgotPasswordSchema = z.strictObject({
+  email: z
+    .string()
+    .trim()
+    .email()
+    .max(254)
+    .transform((value) => value.toLowerCase()),
+});
+
+export type ForgotPasswordInput = z.infer<
+  typeof forgotPasswordSchema
+>;
+
+export const resetPasswordSchema = z.strictObject({
+  token: z.string().regex(/^[a-f0-9]{64}$/),
+
+  newPassword: z
+    .string()
+    .min(8)
+    .max(128)
+    .regex(/[A-Za-z]/, 'Password must contain a letter')
+    .regex(/\d/, 'Password must contain a number'),
+});
+
+export type ResetPasswordInput = z.infer<
+  typeof resetPasswordSchema
+>; 

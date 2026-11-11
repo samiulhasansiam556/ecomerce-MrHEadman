@@ -38,12 +38,10 @@ passwordResetTokenSchema.index(
   { unique: true, name: 'uniq_password_reset_token_hash' },
 );
 
-passwordResetTokenSchema.index({ userId: 1 });
-
 passwordResetTokenSchema.index(
   { expiresAt: 1 },
   {
-    expireAfterSeconds: 604800,
+    expireAfterSeconds: 1800,
     name: 'ttl_password_reset_tokens',
   },
 );

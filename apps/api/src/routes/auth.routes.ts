@@ -23,7 +23,29 @@ import {
   loginSchema,
 } from '../validators/auth.validation';
 
+import {
+  forgotPasswordController,
+  resetPasswordController,
+} from '../controllers/auth.controller';
+
+import {
+  resetPasswordIpLimiter,
+  forgotPasswordEmailLimiter,
+  forgotPasswordIpLimiter,
+} from '../middlewares/rateLimit';
+
+
+
+import {
+  forgotPasswordSchema,
+  resetPasswordSchema,
+} from '../validators/auth.validation';
+
+
+
 const router = Router();
+
+
 
 // Public authentication
 router.post(
@@ -60,6 +82,23 @@ router.post(
 router.post(
   '/refresh',
   refreshController,
+);
+
+// Forgot password
+router.post(
+  '/forgot-password',
+  forgotPasswordIpLimiter,
+  forgotPasswordEmailLimiter,
+  validate(forgotPasswordSchema),
+  forgotPasswordController,
+);
+
+// Reset password
+router.post(
+  '/reset-password',
+  resetPasswordIpLimiter,
+  validate(resetPasswordSchema),
+  resetPasswordController,
 );
 
 export default router;

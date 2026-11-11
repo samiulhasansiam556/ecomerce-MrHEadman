@@ -8,6 +8,7 @@ import {
   CSRF_COOKIE_NAME,
   csrfProtection,
 } from '../middlewares/csrf';
+import mediaRoutes from './media.routes';
 
 
 const router = Router();
@@ -78,6 +79,6 @@ router.get('/auth/csrf', (req, res) => {
 
 router.use('/auth', authRoutes);
 router.use('/me', meRoutes);
-
+router.use('/media', mediaRoutes);
 
 export default router;

@@ -16,6 +16,16 @@ import type {
   LoginInput,
 } from "../validators/auth.validation";
 
+import {
+  forgotUserPassword,
+  resetUserPassword,
+} from '../services/auth.service';
+
+import type {
+  ForgotPasswordInput,
+  ResetPasswordInput,
+} from '../validators/auth.validation';
+
 import type { AuthenticatedUser } from "../middlewares/auth";
 import { env } from "../config/env";
 
@@ -166,3 +176,34 @@ export const changePasswordController: RequestHandler = asyncHandler(
     return res.status(204).send();
   },
 );
+
+export const forgotPasswordController: RequestHandler =
+  asyncHandler(async (_req, res) => {
+    const input = res.locals.validated as ForgotPasswordInput;
+
+    const result = await forgotUserPassword(input);
+
+    return res.status(200).json({
+      success: true,
+      data: result,
+    });
+  });
+
+export const resetPasswordController: RequestHandler =
+  asyncHandler(async (_req, res) => {
+    const input = res.locals.validated as ResetPasswordInput;
+
+    await resetUserPassword(input);
+
+    clearAuthCookies(res);
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        message: 'Password has been reset. Please log in again.',
+      },
+    });
+  });
+
+
+ 
