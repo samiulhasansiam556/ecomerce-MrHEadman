@@ -636,8 +636,7 @@ export async function forgotUserPassword(
     env.CLIENT_URL,
   );
 
-  resetUrl.searchParams.set('token', rawToken);
-  resetUrl.searchParams.set('token', rawToken);
+   resetUrl.searchParams.set('token', rawToken);
 
   try {
     await queuePasswordResetEmail({
@@ -658,8 +657,7 @@ export async function forgotUserPassword(
     );
   }
 
-  return { message: PASSWORD_RESET_MESSAGE };
-  return { message: PASSWORD_RESET_MESSAGE };
+  return { message: PASSWORD_RESET_MESSAGE }
 }
 
 export async function resetUserPassword(

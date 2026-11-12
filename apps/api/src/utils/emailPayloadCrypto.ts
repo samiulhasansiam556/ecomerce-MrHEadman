@@ -4,11 +4,11 @@ import {
   createDecipheriv,
   randomBytes,
 } from 'node:crypto';
-
+import { env } from '../config/env';
 const ALGORITHM = 'aes-256-gcm';
 
 function getEncryptionKey(): Buffer {
-  const value = process.env.EMAIL_PAYLOAD_ENCRYPTION_KEY;
+  const value = env.EMAIL_PAYLOAD_ENCRYPTION_KEY;
 
   if (!value || !/^[a-fA-F0-9]{64}$/.test(value)) {
     throw new Error('EMAIL_PAYLOAD_ENCRYPTION_KEY_INVALID');

@@ -15,6 +15,7 @@ const unsafeKeys = new Set([
  * Reject MongoDB operator keys and unsafe object keys.
  * Also rejects dot notation in user-provided object keys.
  */
+
 function sanitizeInput(
   value: unknown,
   currentPath = '',

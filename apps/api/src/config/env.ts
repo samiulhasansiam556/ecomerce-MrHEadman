@@ -41,6 +41,12 @@ const schema = z.object({
   SMTP_PASS: z.string().optional(),
   EMAIL_FROM: z.string().optional(),
 
+  EMAIL_PAYLOAD_ENCRYPTION_KEY: z
+  .string()
+  .regex(
+    /^[a-fA-F0-9]{64}$/,
+    'Must be a 32-byte hex encryption key',
+  ),
   
   ADMIN_NAME: z.string().trim().min(1).optional(),
   ADMIN_EMAIL: z.string().trim().email().optional(),

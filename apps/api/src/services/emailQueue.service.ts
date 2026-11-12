@@ -2,6 +2,7 @@
 import EmailLogModel from '../models/emailLog.model';
 import { sendEmailMessage } from '../config/mailer';
 import { logger } from '../utils/logger';
+import { Types } from 'mongoose';
 import {
   decryptEmailPayload,
   encryptEmailPayload,
@@ -74,30 +75,45 @@ async function recoverStaleEmails(): Promise<void> {
     Date.now() - PROCESSING_LEASE_MS,
   );
 
-  const now = new Date();
+const staleProcessingFilter = {
+  status: 'processing' as const,
+  $or: [
+    { processingAt: { $lte: leaseExpiredAt } },
+    { processingAt: { $exists: false } },
+  ],
+};
+
+const recoverable = await EmailLogModel.find({
+  ...staleProcessingFilter,
+  attempts: { $lt: MAX_ATTEMPTS },
+})
+  .select('_id attempts')
+  .lean<{ _id: Types.ObjectId; attempts: number }[]>();
+
+  for (const email of recoverable) {
+    const delay = RETRY_DELAYS_MINUTES[email.attempts - 1] ?? 60;
+
+    await EmailLogModel.updateOne(
+      {
+        _id: email._id,
+        ...staleProcessingFilter,
+      },
+      {
+        $set: {
+          status: 'failed',
+          lastError: 'EMAIL_WORKER_LEASE_EXPIRED',
+          nextRetryAt: new Date(
+            Date.now() + delay * 60 * 1000,
+          ),
+        },
+        $unset: { processingAt: 1 },
+      },
+    );
+  }
 
   await EmailLogModel.updateMany(
     {
-      status: 'processing',
-      processingAt: { $lte: leaseExpiredAt },
-      attempts: { $lt: MAX_ATTEMPTS },
-    },
-    {
-      $set: {
-        status: 'failed',
-        lastError: 'EMAIL_WORKER_LEASE_EXPIRED',
-        nextRetryAt: now,
-      },
-      $unset: {
-        processingAt: 1,
-      },
-    },
-  );
-
-  await EmailLogModel.updateMany(
-    {
-      status: 'processing',
-      processingAt: { $lte: leaseExpiredAt },
+      ...staleProcessingFilter,
       attempts: { $gte: MAX_ATTEMPTS },
     },
     {

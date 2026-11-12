@@ -141,3 +141,24 @@ export const requireAuth: RequestHandler = async (
     return next(error);
   }
 };
+export const requireAdmin: RequestHandler = (
+  _req,
+  res,
+  next,
+) => {
+  const authUser = res.locals.authUser as
+    | AuthenticatedUser
+    | undefined;
+
+  if (!authUser || authUser.role !== 'admin') {
+    return next(
+      new AppError(
+        403,
+        'ADMIN_REQUIRED',
+        'Administrator access is required',
+      ),
+    );
+  }
+
+  return next();
+};
