@@ -14,15 +14,13 @@ import { AppError } from '../utils/AppError';
 import type { SignupInput,LoginInput } from '../validators/auth.validation';
 import type { ChangePasswordInput } from '../validators/account.validation';
 import PasswordResetTokenModel from '../models/passwordResetToken.model';
-import { sendPasswordResetEmail } from '../config/mailer';
+import { queuePasswordResetEmail } from './emailQueue.service';
 import { logger } from '../utils/logger';
 
 import type {
   ForgotPasswordInput,
   ResetPasswordInput,
 } from '../validators/auth.validation';
-
-
 
 const ACCESS_TOKEN_TTL = 15 * 60 * 1000;
 const REFRESH_TOKEN_TTL = 7 * 24 * 60 * 60 * 1000;
@@ -639,36 +637,28 @@ export async function forgotUserPassword(
   );
 
   resetUrl.searchParams.set('token', rawToken);
-try {
-  await sendPasswordResetEmail(
-    user.email,
-    resetUrl.toString(),
-  );
-} catch (error) {
-  const smtpError = error as {
-    code?: string;
-    command?: string;
-    responseCode?: number;
-    response?: string;
-  };
+  resetUrl.searchParams.set('token', rawToken);
 
-  logger.error(
-    {
-      errorName:
-        error instanceof Error
-          ? error.name
-          : 'UnknownError',
+  try {
+    await queuePasswordResetEmail({
+      to: user.email,
+      resetUrl: resetUrl.toString(),
+      relatedId: user._id.toString(),
+    });
+  } catch (error) {
+    logger.error(
+      {
+        userId: user._id.toString(),
+        errorName:
+          error instanceof Error
+            ? error.name
+            : 'UnknownError',
+      },
+      'Password reset email could not be queued',
+    );
+  }
 
-      smtpCode: smtpError.code,
-      smtpCommand: smtpError.command,
-      smtpResponseCode: smtpError.responseCode,
-      smtpResponse: smtpError.response
-        ? smtpError.response.slice(0, 300)
-        : undefined,
-    },
-    'Password reset email delivery failed',
-  );
-}
+  return { message: PASSWORD_RESET_MESSAGE };
   return { message: PASSWORD_RESET_MESSAGE };
 }
 

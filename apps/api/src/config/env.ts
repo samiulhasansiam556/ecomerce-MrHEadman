@@ -41,8 +41,12 @@ const schema = z.object({
   SMTP_PASS: z.string().optional(),
   EMAIL_FROM: z.string().optional(),
 
-  ADMIN_EMAIL: z.string().optional(),
-  ADMIN_PASSWORD: z.string().optional(),
+  
+  ADMIN_NAME: z.string().trim().min(1).optional(),
+  ADMIN_EMAIL: z.string().trim().email().optional(),
+  ADMIN_PHONE: z.string().trim().optional(),
+  ADMIN_PASSWORD: z.string().min(8).max(128).optional(),
+
 });
 
 const parsed = schema.safeParse(process.env);
