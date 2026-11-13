@@ -72,6 +72,14 @@ async function getParentCategory(parentId: string | null) {
     );
   }
 
+    if (parent.status !== 'active') {
+    throw new AppError(
+      409,
+      'PARENT_CATEGORY_INACTIVE',
+      'Cannot create or move a category under a hidden or archived parent',
+    );
+  }
+
   if (parent.level >= 3) {
     throw new AppError(
       400,
@@ -106,6 +114,54 @@ function createAuditContext(
     ip: actor.ip,
     userAgent: actor.userAgent,
   });
+}
+
+
+async function validateCategoryStatusChange(
+  categoryId: Types.ObjectId,
+  parentId: Types.ObjectId | null,
+  productCount: number,
+  nextStatus: 'active' | 'hidden' | 'archived',
+): Promise<void> {
+  // A category can only be active if its parent is active.
+  if (nextStatus === 'active' && parentId) {
+    const parent = await CategoryModel.findById(parentId)
+      .select('status')
+      .lean();
+
+    if (!parent || parent.status !== 'active') {
+      throw new AppError(
+        409,
+        'PARENT_CATEGORY_INACTIVE',
+        'Restore the parent category before restoring this category',
+      );
+    }
+  }
+
+  // Archived categories must not contain products.
+  if (nextStatus === 'archived' && productCount > 0) {
+    throw new AppError(
+      409,
+      'CATEGORY_HAS_PRODUCTS',
+      'Move or archive products before archiving this category',
+    );
+  }
+
+  // A hidden/archived category cannot contain active descendants.
+  if (nextStatus !== 'active') {
+    const activeDescendants = await CategoryModel.countDocuments({
+      path: categoryId,
+      status: 'active',
+    });
+
+    if (activeDescendants > 0) {
+      throw new AppError(
+        409,
+        'CATEGORY_HAS_ACTIVE_CHILDREN',
+        'Hide or archive active child categories before changing this category status',
+      );
+    }
+  }
 }
 
 /**
@@ -378,17 +434,13 @@ export async function updateCategory(
     category.order = input.order;
   }
 
-  if (input.status !== undefined) {
-    if (
-      input.status === 'archived' &&
-      category.productCount > 0
-    ) {
-      throw new AppError(
-        409,
-        'CATEGORY_HAS_PRODUCTS',
-        'Move or archive products before archiving this category',
-      );
-    }
+     if (input.status !== undefined) {
+    await validateCategoryStatusChange(
+      category._id,
+      category.parentId,
+      category.productCount,
+      input.status,
+    );
 
     category.status = input.status;
   }
@@ -427,17 +479,12 @@ export async function archiveCategory(
     );
   }
 
-  if (
-    status === 'archived' &&
-    category.productCount > 0
-  ) {
-    throw new AppError(
-      409,
-      'CATEGORY_HAS_PRODUCTS',
-      'Move or archive products before archiving this category',
-    );
-  }
-
+   await validateCategoryStatusChange(
+    category._id,
+    category.parentId,
+    category.productCount,
+    status,
+  );
   const before = category.toObject();
 
   category.status = status;
@@ -474,6 +521,12 @@ export async function restoreCategory(
     );
   }
 
+    await validateCategoryStatusChange(
+    category._id,
+    category.parentId,
+    category.productCount,
+    'active',
+  );
   const before = category.toObject();
 
   category.status = 'active';
