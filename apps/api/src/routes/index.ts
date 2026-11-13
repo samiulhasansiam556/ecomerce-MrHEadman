@@ -6,6 +6,7 @@ import authRoutes from './auth.routes';
 import meRoutes from './me.routes';
 import mediaRoutes from './media.routes';
 import adminEmailLogRoutes from './adminEmailLog.routes';
+import adminCategoryRoutes from './adminCategory.routes';
 import {
   CSRF_COOKIE_NAME,
   csrfProtection,
@@ -83,4 +84,7 @@ router.use('/auth', authRoutes);
 router.use('/me', meRoutes);
 router.use('/media', mediaRoutes);
 router.use('/admin', adminEmailLogRoutes);
+router.use('/admin/categories', adminCategoryRoutes);
+
+
 export default router;
