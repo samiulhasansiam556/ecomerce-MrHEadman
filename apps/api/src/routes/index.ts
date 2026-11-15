@@ -7,6 +7,12 @@ import meRoutes from './me.routes';
 import mediaRoutes from './media.routes';
 import adminEmailLogRoutes from './adminEmailLog.routes';
 import adminCategoryRoutes from './adminCategory.routes';
+import adminAttributeRoutes from './adminAttribute.routes';
+import adminOptionSetRoutes from './adminOptionSet.routes';
+import adminProductTypeRoutes from './adminProductType.routes';
+import adminSizeChartRoutes from './adminSizeChart.routes';
+import adminBrandRoutes from './adminBrand.routes';
+import adminCollectionRoutes from './adminCollection.routes';
 import {
   CSRF_COOKIE_NAME,
   csrfProtection,
@@ -85,6 +91,13 @@ router.use('/me', meRoutes);
 router.use('/media', mediaRoutes);
 router.use('/admin', adminEmailLogRoutes);
 router.use('/admin/categories', adminCategoryRoutes);
+router.use('/admin/attributes', adminAttributeRoutes);
+router.use('/admin/option-sets', adminOptionSetRoutes);
+router.use('/admin/product-types', adminProductTypeRoutes);
+router.use('/admin/size-charts', adminSizeChartRoutes);
+router.use('/admin/brands', adminBrandRoutes);
+router.use('/admin/collections', adminCollectionRoutes);
+
 
 
 export default router;

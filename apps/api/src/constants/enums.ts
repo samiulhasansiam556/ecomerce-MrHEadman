@@ -24,3 +24,24 @@ export const AUDIENCES = [
 
 export type Audience =
   (typeof AUDIENCES)[number];
+
+
+  export const ATTRIBUTE_INPUT_TYPES = [
+  'text',
+  'number',
+  'select',
+  'multiselect',
+  'color',
+  'boolean',
+] as const;
+
+export type AttributeInputType =
+  (typeof ATTRIBUTE_INPUT_TYPES)[number];
+
+  export const OPTION_SET_TYPES = [
+  'text',
+  'color',
+] as const;
+
+export type OptionSetType =
+  (typeof OPTION_SET_TYPES)[number];

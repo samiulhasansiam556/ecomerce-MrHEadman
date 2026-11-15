@@ -164,6 +164,104 @@ async function validateCategoryStatusChange(
   }
 }
 
+
+
+
+type CategoryConfigRecord = {
+  _id: Types.ObjectId;
+  path: Types.ObjectId[];
+  productTypeId?: Types.ObjectId | null;
+  sizeChartId?: Types.ObjectId | null;
+};
+
+async function attachResolvedCategoryConfiguration<
+  T extends CategoryConfigRecord,
+>(categories: T[]) {
+  const ancestorIds = [
+    ...new Set(
+      categories.flatMap((category) =>
+        category.path.map((id) => id.toString()),
+      ),
+    ),
+  ];
+
+  const ancestors = ancestorIds.length
+    ? await CategoryModel.find({
+        _id: { $in: ancestorIds },
+      })
+        .select('_id productTypeId sizeChartId')
+        .lean()
+    : [];
+
+  const configMap = new Map(
+    ancestors.map((category) => [
+      category._id.toString(),
+      category,
+    ]),
+  );
+
+  return categories.map((category) => {
+    let effectiveProductTypeId =
+      category.productTypeId ?? null;
+
+    let effectiveSizeChartId =
+      category.sizeChartId ?? null;
+
+    let productTypeSourceCategoryId =
+      effectiveProductTypeId ? category._id : null;
+
+    let sizeChartSourceCategoryId =
+      effectiveSizeChartId ? category._id : null;
+
+    // path is stored from root to immediate parent.
+    // Reverse traversal finds the nearest ancestor first.
+    for (let i = category.path.length - 1; i >= 0; i--) {
+      const ancestor = configMap.get(
+        category.path[i].toString(),
+      );
+
+      if (!ancestor) continue;
+
+      if (
+        !effectiveProductTypeId &&
+        ancestor.productTypeId
+      ) {
+        effectiveProductTypeId =
+          ancestor.productTypeId;
+
+        productTypeSourceCategoryId =
+          ancestor._id;
+      }
+
+      if (
+        !effectiveSizeChartId &&
+        ancestor.sizeChartId
+      ) {
+        effectiveSizeChartId =
+          ancestor.sizeChartId;
+
+        sizeChartSourceCategoryId =
+          ancestor._id;
+      }
+
+      if (
+        effectiveProductTypeId &&
+        effectiveSizeChartId
+      ) {
+        break;
+      }
+    }
+
+    return {
+      ...category,
+      effectiveProductTypeId,
+      effectiveSizeChartId,
+      productTypeSourceCategoryId,
+      sizeChartSourceCategoryId,
+    };
+  });
+}
+
 /**
  * Create category.
  */
@@ -272,16 +370,19 @@ export async function listCategories(query: {
 
     CategoryModel.countDocuments(filter),
   ]);
+ 
+   const resolvedItems =
+  await attachResolvedCategoryConfiguration(items);
 
-  return {
-    items,
-    pagination: {
-      page: query.page,
-      limit: query.limit,
-      total,
-      totalPages: Math.ceil(total / query.limit),
-    },
-  };
+ return {
+  items: resolvedItems,
+  pagination: {
+    page: query.page,
+    limit: query.limit,
+    total,
+    totalPages: Math.ceil(total / query.limit),
+  },
+};
 }
 
 /**
@@ -289,9 +390,12 @@ export async function listCategories(query: {
  * Includes active, hidden and archived categories.
  */
 export async function getCategoryTree() {
-  const categories = await CategoryModel.find()
-    .sort({ order: 1, name: 1 })
-    .lean();
+ const rawCategories = await CategoryModel.find()
+  .sort({ order: 1, name: 1 })
+  .lean();
+
+const categories =
+  await attachResolvedCategoryConfiguration(rawCategories);
 
   type TreeNode = (typeof categories)[number] & {
     children: TreeNode[];
@@ -348,11 +452,16 @@ export async function getCategoryById(id: string) {
       .lean(),
   ]);
 
-  return {
-    ...category.toObject(),
-    parent,
-    children,
-  };
+const [resolvedCategory] =
+  await attachResolvedCategoryConfiguration([
+    category.toObject(),
+  ]);
+
+return {
+  ...resolvedCategory,
+  parent,
+  children,
+};
 }
 
 /**
