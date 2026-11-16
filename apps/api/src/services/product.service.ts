@@ -1,25 +1,24 @@
+import mongoose, { Types } from "mongoose";
 
-import mongoose, { Types } from 'mongoose';
+import ProductModel from "../models/product.model";
+import VariantModel from "../models/variant.model";
+import StockMovementModel from "../models/stockMovement.model";
 
-import ProductModel from '../models/product.model';
-import VariantModel from '../models/variant.model';
-import StockMovementModel from '../models/stockMovement.model';
+import CategoryModel from "../models/category.model";
+import ProductTypeModel from "../models/productType.model";
+import AttributeModel from "../models/attribute.model";
+import OptionSetModel from "../models/optionSet.model";
+import BrandModel from "../models/brand.model";
+import CollectionModel from "../models/collection.model";
+import SizeChartModel from "../models/sizeChart.model";
 
-import CategoryModel from '../models/category.model';
-import ProductTypeModel from '../models/productType.model';
-import AttributeModel from '../models/attribute.model';
-import OptionSetModel from '../models/optionSet.model';
-import BrandModel from '../models/brand.model';
-import CollectionModel from '../models/collection.model';
-import SizeChartModel from '../models/sizeChart.model';
-
-import { AppError } from '../utils/AppError';
-import { createAdminAuditEvent } from './adminAudit.service';
+import { AppError } from "../utils/AppError";
+import { createAdminAuditEvent } from "./adminAudit.service";
 
 import type {
   CreateProductInput,
   VariantInput,
-} from '../validators/product.validation';
+} from "../validators/product.validation";
 
 type AuditActor = {
   actorId: string;
@@ -37,7 +36,7 @@ function makeOptionHash(
   return [...optionValues]
     .sort((a, b) => a.optionKey.localeCompare(b.optionKey))
     .map(({ optionKey, value }) => `${optionKey}=${value}`)
-    .join('|');
+    .join("|");
 }
 
 function getEffectivePrices(
@@ -49,8 +48,8 @@ function getEffectivePrices(
 
   if (salePrice !== undefined && salePrice >= regularPrice) {
     fail(
-      'INVALID_SALE_PRICE',
-      'Sale price must be lower than the effective regular price',
+      "INVALID_SALE_PRICE",
+      "Sale price must be lower than the effective regular price",
     );
   }
 
@@ -75,7 +74,7 @@ async function resolveCategoryConfiguration(
     const ancestors = await CategoryModel.find({
       _id: { $in: ancestorIds },
     })
-      .select('_id productTypeId sizeChartId')
+      .select("_id productTypeId sizeChartId")
       .session(session)
       .lean();
 
@@ -113,21 +112,19 @@ async function validateAttributes(
   },
   session: mongoose.ClientSession,
 ) {
-  const attributeIds = productType.attributes.map(
-    (item) => item.attributeId,
-  );
+  const attributeIds = productType.attributes.map((item) => item.attributeId);
 
   const attributes = await AttributeModel.find({
     _id: { $in: attributeIds },
-    status: 'active',
+    status: "active",
   })
     .session(session)
     .lean();
 
   if (attributes.length !== attributeIds.length) {
     fail(
-      'INVALID_PRODUCT_TYPE_ATTRIBUTE',
-      'Product type contains missing or inactive attributes',
+      "INVALID_PRODUCT_TYPE_ATTRIBUTE",
+      "Product type contains missing or inactive attributes",
       409,
     );
   }
@@ -136,22 +133,18 @@ async function validateAttributes(
     attributes.map((item) => [item._id.toString(), item]),
   );
 
-  const allowedKeys = new Set(
-    attributes.map((item) => item.key),
-  );
+  const allowedKeys = new Set(attributes.map((item) => item.key));
 
-  const submittedKeys = input.attributeValues.map(
-    (item) => item.key,
-  );
+  const submittedKeys = input.attributeValues.map((item) => item.key);
 
   if (new Set(submittedKeys).size !== submittedKeys.length) {
-    fail('DUPLICATE_ATTRIBUTE', 'Duplicate attribute keys are not allowed');
+    fail("DUPLICATE_ATTRIBUTE", "Duplicate attribute keys are not allowed");
   }
 
   for (const key of submittedKeys) {
     if (!allowedKeys.has(key)) {
       fail(
-        'UNKNOWN_ATTRIBUTE',
+        "UNKNOWN_ATTRIBUTE",
         `Attribute "${key}" is not allowed for this product type`,
       );
     }
@@ -168,33 +161,37 @@ async function validateAttributes(
 
     if (config.required && !submitted) {
       fail(
-        'REQUIRED_ATTRIBUTE_MISSING',
+        "REQUIRED_ATTRIBUTE_MISSING",
         `Required attribute "${attribute.key}" is missing`,
       );
     }
 
-    if (submitted && attribute.inputType === 'select') {
+    if (submitted && attribute.inputType === "select") {
       const allowed = new Set(
         (attribute.options ?? [])
-          .filter((option: { hidden?: boolean; value: string }) => !option.hidden)
+          .filter(
+            (option: { hidden?: boolean; value: string }) => !option.hidden,
+          )
           .map((option: { value: string }) => option.value),
       );
 
       if (
-        typeof submitted.value !== 'string' ||
+        typeof submitted.value !== "string" ||
         !allowed.has(submitted.value)
       ) {
         fail(
-          'INVALID_ATTRIBUTE_VALUE',
+          "INVALID_ATTRIBUTE_VALUE",
           `Invalid value for attribute "${attribute.key}"`,
         );
       }
     }
 
-    if (submitted && attribute.inputType === 'multiselect') {
+    if (submitted && attribute.inputType === "multiselect") {
       const allowed = new Set(
         (attribute.options ?? [])
-          .filter((option: { hidden?: boolean; value: string }) => !option.hidden)
+          .filter(
+            (option: { hidden?: boolean; value: string }) => !option.hidden,
+          )
           .map((option: { value: string }) => option.value),
       );
 
@@ -203,7 +200,7 @@ async function validateAttributes(
         submitted.value.some((value) => !allowed.has(value))
       ) {
         fail(
-          'INVALID_ATTRIBUTE_VALUE',
+          "INVALID_ATTRIBUTE_VALUE",
           `Invalid value for attribute "${attribute.key}"`,
         );
       }
@@ -211,23 +208,22 @@ async function validateAttributes(
 
     if (
       submitted &&
-      attribute.inputType === 'number' &&
-      (typeof submitted.value !== 'number' ||
-        !Number.isFinite(submitted.value))
+      attribute.inputType === "number" &&
+      (typeof submitted.value !== "number" || !Number.isFinite(submitted.value))
     ) {
       fail(
-        'INVALID_ATTRIBUTE_VALUE',
+        "INVALID_ATTRIBUTE_VALUE",
         `Attribute "${attribute.key}" must be a number`,
       );
     }
 
     if (
       submitted &&
-      attribute.inputType === 'boolean' &&
-      typeof submitted.value !== 'boolean'
+      attribute.inputType === "boolean" &&
+      typeof submitted.value !== "boolean"
     ) {
       fail(
-        'INVALID_ATTRIBUTE_VALUE',
+        "INVALID_ATTRIBUTE_VALUE",
         `Attribute "${attribute.key}" must be boolean`,
       );
     }
@@ -252,15 +248,15 @@ async function validateOptionsAndVariants(
 
   const optionSets = await OptionSetModel.find({
     _id: { $in: optionSetIds },
-    status: 'active',
+    status: "active",
   })
     .session(session)
     .lean();
 
   if (optionSets.length !== optionSetIds.length) {
     fail(
-      'INVALID_PRODUCT_TYPE_OPTION_SET',
-      'Product type contains missing or inactive option sets',
+      "INVALID_PRODUCT_TYPE_OPTION_SET",
+      "Product type contains missing or inactive option sets",
       409,
     );
   }
@@ -280,8 +276,8 @@ async function validateOptionsAndVariants(
     input.optionKeys.some((key, index) => key !== optionKeys[index])
   ) {
     fail(
-      'OPTION_KEYS_MISMATCH',
-      'optionKeys must match the product type option sets and their order',
+      "OPTION_KEYS_MISMATCH",
+      "optionKeys must match the product type option sets and their order",
     );
   }
 
@@ -290,7 +286,7 @@ async function validateOptionsAndVariants(
       optionSet.key,
       new Set(
         optionSet.values
-          .filter((value:any) => !value.hidden)
+          .filter((value: any) => !value.hidden)
           .map((value: { value: string }) => value.value),
       ),
     ]),
@@ -304,28 +300,26 @@ async function validateOptionsAndVariants(
     if (optionKeys.length === 0) {
       if (input.variants.length !== 1 || values.length !== 0) {
         fail(
-          'DEFAULT_VARIANT_REQUIRED',
-          'Products without option sets must have exactly one default variant',
+          "DEFAULT_VARIANT_REQUIRED",
+          "Products without option sets must have exactly one default variant",
         );
       }
     } else {
       if (
         values.length !== optionKeys.length ||
-        optionKeys.some(
-          (key) => !values.some((item) => item.optionKey === key),
-        )
+        optionKeys.some((key) => !values.some((item) => item.optionKey === key))
       ) {
         fail(
-          'VARIANT_OPTIONS_INCOMPLETE',
-          'Every variant must contain exactly one value for each product option',
+          "VARIANT_OPTIONS_INCOMPLETE",
+          "Every variant must contain exactly one value for each product option",
         );
       }
     }
 
     if (new Set(values.map((item) => item.optionKey)).size !== values.length) {
       fail(
-        'DUPLICATE_VARIANT_OPTION',
-        'A variant cannot contain duplicate option keys',
+        "DUPLICATE_VARIANT_OPTION",
+        "A variant cannot contain duplicate option keys",
       );
     }
 
@@ -334,7 +328,7 @@ async function validateOptionsAndVariants(
 
       if (!allowed || !allowed.has(item.value)) {
         fail(
-          'INVALID_VARIANT_OPTION',
+          "INVALID_VARIANT_OPTION",
           `Invalid value "${item.value}" for option "${item.optionKey}"`,
         );
       }
@@ -344,8 +338,8 @@ async function validateOptionsAndVariants(
 
     if (hashes.has(hash)) {
       fail(
-        'DUPLICATE_VARIANT_COMBINATION',
-        'Duplicate variant option combinations are not allowed',
+        "DUPLICATE_VARIANT_COMBINATION",
+        "Duplicate variant option combinations are not allowed",
       );
     }
 
@@ -376,30 +370,32 @@ async function validateReferences(
   if (input.brandId) {
     const brand = await BrandModel.findOne({
       _id: input.brandId,
-      status: 'active',
-    }).session(session).lean();
+      status: "active",
+    })
+      .session(session)
+      .lean();
 
     if (!brand) {
-      fail('BRAND_NOT_FOUND', 'Brand does not exist or is inactive', 404);
+      fail("BRAND_NOT_FOUND", "Brand does not exist or is inactive", 404);
     }
   }
 
   const collectionIds = [...new Set(input.collectionIds)];
 
   if (collectionIds.length !== input.collectionIds.length) {
-    fail('DUPLICATE_COLLECTION', 'Duplicate collection IDs are not allowed');
+    fail("DUPLICATE_COLLECTION", "Duplicate collection IDs are not allowed");
   }
 
   if (collectionIds.length) {
     const count = await CollectionModel.countDocuments({
       _id: { $in: collectionIds },
-      status: 'active',
+      status: "active",
     }).session(session);
 
     if (count !== collectionIds.length) {
       fail(
-        'INVALID_COLLECTION',
-        'One or more collections do not exist or are inactive',
+        "INVALID_COLLECTION",
+        "One or more collections do not exist or are inactive",
       );
     }
   }
@@ -411,22 +407,24 @@ export async function createProduct(
 ) {
   const session = await mongoose.startSession();
 
-  let result: {
-    product: unknown;
-    variants: unknown[];
-  } | undefined;
+  let result:
+    | {
+        product: unknown;
+        variants: unknown[];
+      }
+    | undefined;
 
   try {
     await session.withTransaction(async () => {
       const category = await CategoryModel.findOne({
         _id: input.categoryId,
-        status: 'active',
+        status: "active",
       }).session(session);
 
       if (!category) {
         fail(
-          'CATEGORY_NOT_FOUND',
-          'Category does not exist or is inactive',
+          "CATEGORY_NOT_FOUND",
+          "Category does not exist or is inactive",
           404,
         );
       }
@@ -437,71 +435,72 @@ export async function createProduct(
 
       if (category.hasChildren || hasChildren) {
         fail(
-          'CATEGORY_NOT_LEAF',
-          'Products can only be assigned to leaf categories',
+          "CATEGORY_NOT_LEAF",
+          "Products can only be assigned to leaf categories",
         );
       }
 
-      const resolved = await resolveCategoryConfiguration(
-        category,
-        session,
-      );
+      const resolved = await resolveCategoryConfiguration(category, session);
 
       if (!resolved.productTypeId) {
         fail(
-          'PRODUCT_TYPE_NOT_CONFIGURED',
-          'No product type is configured for this category or its ancestors',
+          "PRODUCT_TYPE_NOT_CONFIGURED",
+          "No product type is configured for this category or its ancestors",
           409,
         );
       }
 
-      if (
-        input.productTypeId !== resolved.productTypeId.toString()
-      ) {
+      if (input.productTypeId !== resolved.productTypeId.toString()) {
         fail(
-          'PRODUCT_TYPE_MISMATCH',
-          'Submitted product type does not match the category configuration',
+          "PRODUCT_TYPE_MISMATCH",
+          "Submitted product type does not match the category configuration",
         );
       }
 
       const productType = await ProductTypeModel.findOne({
         _id: resolved.productTypeId,
-        status: 'active',
-      }).session(session).lean();
+        status: "active",
+      })
+        .session(session)
+        .lean();
 
       if (!productType) {
         fail(
-          'PRODUCT_TYPE_INACTIVE',
-          'Configured product type does not exist or is inactive',
+          "PRODUCT_TYPE_INACTIVE",
+          "Configured product type does not exist or is inactive",
           409,
         );
       }
 
       await validateAttributes(input, productType, session);
 
-      const { optionKeys, optionValuesUsed } =
-        await validateOptionsAndVariants(input, productType, session);
+      const { optionKeys, optionValuesUsed } = await validateOptionsAndVariants(
+        input,
+        productType,
+        session,
+      );
 
       await validateReferences(input, session);
 
       let sizeChartId: Types.ObjectId | undefined;
 
       if (productType.sizeChartEnabled) {
-        const requestedSizeChartId =
-          input.sizeChartId
-            ? new Types.ObjectId(input.sizeChartId)
-            : resolved.sizeChartId;
+        const requestedSizeChartId = input.sizeChartId
+          ? new Types.ObjectId(input.sizeChartId)
+          : resolved.sizeChartId;
 
         if (requestedSizeChartId) {
           const sizeChart = await SizeChartModel.findOne({
             _id: requestedSizeChartId,
-            status: 'active',
-          }).session(session).lean();
+            status: "active",
+          })
+            .session(session)
+            .lean();
 
           if (!sizeChart) {
             fail(
-              'SIZE_CHART_NOT_FOUND',
-              'Size chart does not exist or is inactive',
+              "SIZE_CHART_NOT_FOUND",
+              "Size chart does not exist or is inactive",
               404,
             );
           }
@@ -514,18 +513,18 @@ export async function createProduct(
         (variant) => variant.isActive,
       );
 
-      if (input.status === 'published') {
+      if (input.status === "published") {
         if (input.images.length === 0) {
           fail(
-            'PUBLISH_IMAGE_REQUIRED',
-            'At least one product image is required before publishing',
+            "PUBLISH_IMAGE_REQUIRED",
+            "At least one product image is required before publishing",
           );
         }
 
         if (activeVariants.length === 0) {
           fail(
-            'PUBLISH_VARIANT_REQUIRED',
-            'At least one active variant is required before publishing',
+            "PUBLISH_VARIANT_REQUIRED",
+            "At least one active variant is required before publishing",
           );
         }
 
@@ -534,8 +533,8 @@ export async function createProduct(
 
           if (regularPrice <= 0) {
             fail(
-              'PUBLISH_PRICE_REQUIRED',
-              'Every active variant must have an effective price greater than zero',
+              "PUBLISH_PRICE_REQUIRED",
+              "Every active variant must have an effective price greater than zero",
             );
           }
         }
@@ -546,8 +545,8 @@ export async function createProduct(
         input.salePrice >= input.regularPrice
       ) {
         fail(
-          'INVALID_SALE_PRICE',
-          'Product sale price must be lower than regular price',
+          "INVALID_SALE_PRICE",
+          "Product sale price must be lower than regular price",
         );
       }
 
@@ -571,15 +570,15 @@ export async function createProduct(
 
       const searchText = [
         input.name,
-        input.productCode ?? '',
+        input.productCode ?? "",
         input.description,
         ...input.tags,
         ...input.attributeValues.map((item) =>
-          Array.isArray(item.value)
-            ? item.value.join(' ')
-            : String(item.value),
+          Array.isArray(item.value) ? item.value.join(" ") : String(item.value),
         ),
-      ].join(' ').toLowerCase();
+      ]
+        .join(" ")
+        .toLowerCase();
 
       const productData = {
         _id: productId,
@@ -589,13 +588,9 @@ export async function createProduct(
         description: input.description,
         categoryId: category._id,
         categoryPath: [...category.path, category._id],
-        brandId: input.brandId
-          ? new Types.ObjectId(input.brandId)
-          : undefined,
+        brandId: input.brandId ? new Types.ObjectId(input.brandId) : undefined,
         productTypeId: resolved.productTypeId,
-        collectionIds: input.collectionIds.map(
-          (id) => new Types.ObjectId(id),
-        ),
+        collectionIds: input.collectionIds.map((id) => new Types.ObjectId(id)),
         attributeValues: input.attributeValues,
         images: input.images,
         regularPrice: input.regularPrice,
@@ -609,8 +604,7 @@ export async function createProduct(
         tags: input.tags,
         seo: input.seo,
         status: input.status,
-        publishedAt:
-          input.status === 'published' ? new Date() : undefined,
+        publishedAt: input.status === "published" ? new Date() : undefined,
         minPrice,
         maxPrice,
         inStock,
@@ -621,10 +615,9 @@ export async function createProduct(
         },
       };
 
-      const [createdProduct] = await ProductModel.create(
-        [productData],
-        { session },
-      );
+      const [createdProduct] = await ProductModel.create([productData], {
+        session,
+      });
 
       const variantDocuments = input.variants.map((variant) => ({
         productId,
@@ -644,10 +637,9 @@ export async function createProduct(
         isActive: variant.isActive,
       }));
 
-      const createdVariants = await VariantModel.create(
-        variantDocuments,
-        { session },
-      );
+      const createdVariants = await VariantModel.create(variantDocuments, {
+        session,
+      });
 
       const movements = createdVariants
         .filter((variant) => variant.stock.onHand > 0)
@@ -655,14 +647,14 @@ export async function createProduct(
           variantId: variant._id,
           productId,
           sku: variant.sku,
-          type: 'initial' as const,
+          type: "initial" as const,
           delta: variant.stock.onHand,
-          field: 'onHand' as const,
+          field: "onHand" as const,
           before: 0,
           after: variant.stock.onHand,
-          reason: 'initial_stock',
+          reason: "initial_stock",
           actor: {
-            type: 'admin' as const,
+            type: "admin" as const,
             userId: new Types.ObjectId(actor.actorId),
           },
         }));
@@ -695,8 +687,8 @@ export async function createProduct(
 
       await createAdminAuditEvent({
         actorId: actor.actorId,
-        action: 'product.create',
-        targetType: 'product',
+        action: "product.create",
+        targetType: "product",
         targetId: productId.toString(),
         after: productData,
         ip: actor.ip,
@@ -713,8 +705,8 @@ export async function createProduct(
     if (!result) {
       throw new AppError(
         500,
-        'PRODUCT_CREATE_FAILED',
-        'Product creation did not complete',
+        "PRODUCT_CREATE_FAILED",
+        "Product creation did not complete",
       );
     }
 
@@ -726,8 +718,8 @@ export async function createProduct(
     ) {
       throw new AppError(
         409,
-        'DUPLICATE_PRODUCT_DATA',
-        'Product slug, SKU or variant combination already exists',
+        "DUPLICATE_PRODUCT_DATA",
+        "Product slug, SKU or variant combination already exists",
       );
     }
 
@@ -736,3 +728,95 @@ export async function createProduct(
     await session.endSession();
   }
 }
+
+import type { ProductListQuery } from "../validators/product.validation";
+import { Variant } from "../models/variant.model";
+import type { SortOrder } from "mongoose";
+
+export const getAdminProducts = async (query: ProductListQuery) => {
+  const queryWithExtras = query as ProductListQuery & {
+    minPrice?: number;
+    maxPrice?: number;
+    sort?: string;
+  };
+  const priceQuery = queryWithExtras;
+  const page = query.page ?? 1;
+  const limit = query.limit ?? 20;
+  const skip = (page - 1) * limit;
+
+  const filter: Record<string, any> = {};
+
+  if (query.status) {
+    filter.status = query.status;
+  }
+
+  if (query.categoryId) {
+    filter.categoryId = query.categoryId;
+  }
+
+  if (query.brandId) {
+    filter.brandId = query.brandId;
+  }
+
+  if (query.search) {
+    const searchRegex = new RegExp(
+      query.search.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
+      "i",
+    );
+
+    const matchingVariants = await VariantModel.find({
+      sku: searchRegex,
+    })
+      .select("productId")
+      .lean();
+
+    const matchingProductIds = matchingVariants.map(
+      (variant) => variant.productId,
+    );
+
+    filter.$or = [
+      { name: searchRegex },
+      { slug: searchRegex },
+      { productCode: searchRegex },
+      { searchText: searchRegex },
+      { _id: { $in: matchingProductIds } },
+    ];
+  }
+
+  if (priceQuery.minPrice !== undefined || priceQuery.maxPrice !== undefined) {
+    filter.minPrice = {};
+
+    if (priceQuery.minPrice !== undefined) {
+      filter.minPrice.$gte = priceQuery.minPrice;
+    }
+
+    if (priceQuery.maxPrice !== undefined) {
+      filter.minPrice.$lte = priceQuery.maxPrice;
+    }
+  }
+
+  const sortOptions: Record<string, Record<string, SortOrder>> = {
+    newest: { createdAt: -1 },
+    oldest: { createdAt: 1 },
+    "price-low-high": { minPrice: 1 },
+    "price-high-low": { maxPrice: -1 },
+    name: { name: 1 },
+  };
+
+  const sort = sortOptions[queryWithExtras.sort ?? "newest"];
+
+  const [products, total] = await Promise.all([
+    ProductModel.find(filter).sort(sort).skip(skip).limit(limit).lean(),
+    ProductModel.countDocuments(filter),
+  ]);
+
+  return {
+    products,
+    meta: {
+      page,
+      limit,
+      total,
+      totalPages: Math.ceil(total / limit),
+    },
+  };
+};

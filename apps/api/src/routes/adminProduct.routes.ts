@@ -1,7 +1,7 @@
 
 import { Router } from 'express';
 
-import { createProductController } from '../controllers/product.controller';
+import { createProductController ,getAdminProductsController} from '../controllers/product.controller';
 
 import {
   requireAuth,
@@ -10,7 +10,7 @@ import {
 
 import { validate } from '../middlewares/validate';
 
-import { createProductSchema } from '../validators/product.validation';
+import { createProductSchema,productListQuerySchema } from '../validators/product.validation';
 
 const router = Router();
 
@@ -18,6 +18,13 @@ const router = Router();
 router.use(requireAuth, requireAdmin);
 
 // POST /admin/products
+
+
+router.get(
+  '/',
+  validate(productListQuerySchema, 'query'),
+  getAdminProductsController,
+);
 router.post(
   '/',
   validate(createProductSchema, 'body'),

@@ -5,6 +5,10 @@ import type { AuthenticatedUser } from "../middlewares/auth";
 
 import { createProduct } from "../services/product.service";
 import type { CreateProductInput } from "../validators/product.validation";
+import { getAdminProducts } from "../services/product.service";
+import type { ProductListQuery } from "../validators/product.validation";
+
+
 
 type ProductActor = {
   actorId: string;
@@ -40,6 +44,21 @@ export const createProductController: RequestHandler = asyncHandler(
     return res.status(201).json({
       success: true,
       data: result,
+    });
+  },
+);
+
+
+export const getAdminProductsController: RequestHandler = asyncHandler(
+  async (req, res) => {
+    const query = res.locals.validated as ProductListQuery;
+
+    const result = await getAdminProducts(query);
+
+    return res.status(200).json({
+      success: true,
+      data: result.products,
+      meta: result.meta,
     });
   },
 );
