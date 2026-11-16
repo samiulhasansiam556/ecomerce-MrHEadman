@@ -13,6 +13,7 @@ import adminProductTypeRoutes from './adminProductType.routes';
 import adminSizeChartRoutes from './adminSizeChart.routes';
 import adminBrandRoutes from './adminBrand.routes';
 import adminCollectionRoutes from './adminCollection.routes';
+import adminProductRoutes from './adminProduct.routes';
 import {
   CSRF_COOKIE_NAME,
   csrfProtection,
@@ -67,7 +68,7 @@ router.get('/auth/csrf', (req, res) => {
       ? existingToken
       : randomBytes(32).toString('hex');
 
-  if (csrfToken !== existingToken) {
+      if (csrfToken !== existingToken) {
     res.cookie(CSRF_COOKIE_NAME, csrfToken, {
       httpOnly: true,
       secure: env.NODE_ENV === 'production',
@@ -97,6 +98,7 @@ router.use('/admin/product-types', adminProductTypeRoutes);
 router.use('/admin/size-charts', adminSizeChartRoutes);
 router.use('/admin/brands', adminBrandRoutes);
 router.use('/admin/collections', adminCollectionRoutes);
+router.use('/admin/products', adminProductRoutes);
 
 
 
